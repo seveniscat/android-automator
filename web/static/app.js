@@ -31,6 +31,18 @@ function automatorApp() {
     autoRefresh: false,
     _refreshTimer: null,
 
+    // 投屏(WebSocket 实时流)
+    streaming: false,
+    streamStatus: "未连接", // 未连接 / 连接中 / 直播中 / 已断开 / 错误
+    streamFps: 0,
+    streamSrc: "",
+    _ws: null,
+    _lastFrameTs: 0,
+    _frameTimes: [],
+    _blobUrl: null,
+    _reconnectTimer: null,
+    _userStopped: false,
+
     // 流程
     flows: [],
     selectedFlow: null,
@@ -86,6 +98,100 @@ function automatorApp() {
     async resetDevice() {
       await fetch("/api/devices/reset", { method: "POST" });
       await this.loadDevice();
+    },
+
+    // ---- 投屏(WebSocket 实时流)----
+    streamUrl() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      return `${proto}://${location.host}/api/devices/stream`;
+    },
+    toggleStream() {
+      this.streaming ? this.stopStream() : this.startStream();
+    },
+    startStream() {
+      // 关掉旧的单张自动刷新,避免互相干扰
+      if (this.autoRefresh) this.toggleAutoRefresh();
+      this._userStopped = false;
+      this.streaming = true;
+      this.streamStatus = "连接中";
+      this.streamFps = 0;
+      this._frameTimes = [];
+      try {
+        this._ws = new WebSocket(this.streamUrl());
+      } catch (e) {
+        this.streamStatus = "错误";
+        this.streaming = false;
+        return;
+      }
+      this._ws.binaryType = "arraybuffer";
+      this._ws.onopen = () => {
+        this.streamStatus = "直播中";
+      };
+      this._ws.onmessage = (ev) => {
+        if (typeof ev.data === "string") {
+          // 文本帧:hello 元信息 / error 状态
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === "error") {
+              this.streamStatus = "错误";
+              this.streamError = msg.detail || "设备异常";
+            }
+          } catch (_) {}
+          return;
+        }
+        // binary 帧:JPEG
+        const url = URL.createObjectURL(
+          new Blob([ev.data], { type: "image/jpeg" })
+        );
+        if (this._blobUrl) URL.revokeObjectURL(this._blobUrl);
+        this._blobUrl = url;
+        this.streamSrc = url;
+        // 滑动窗口估算实际 fps
+        const now = performance.now();
+        if (this._lastFrameTs) {
+          this._frameTimes.push(now - this._lastFrameTs);
+          if (this._frameTimes.length > 10) this._frameTimes.shift();
+          const avg =
+            this._frameTimes.reduce((a, b) => a + b, 0) /
+            this._frameTimes.length;
+          this.streamFps = avg ? Math.round(1000 / avg) : 0;
+        }
+        this._lastFrameTs = now;
+      };
+      this._ws.onclose = () => {
+        this.streaming = false;
+        if (this._userStopped) {
+          this.streamStatus = "未连接";
+        } else {
+          this.streamStatus = "已断开";
+          // 自动重连(3s 后),前提是用户没有主动停止
+          clearTimeout(this._reconnectTimer);
+          this._reconnectTimer = setTimeout(() => {
+            if (!this._userStopped) this.startStream();
+          }, 3000);
+        }
+      };
+      this._ws.onerror = () => {
+        this.streamStatus = "错误";
+      };
+    },
+    stopStream() {
+      this._userStopped = true;
+      clearTimeout(this._reconnectTimer);
+      if (this._ws) {
+        try {
+          this._ws.close();
+        } catch (_) {}
+        this._ws = null;
+      }
+      if (this._blobUrl) {
+        URL.revokeObjectURL(this._blobUrl);
+        this._blobUrl = null;
+      }
+      this.streaming = false;
+      this.streamStatus = "未连接";
+      this.streamSrc = "";
+      this.streamFps = 0;
     },
     deviceInfoRows() {
       const d = this.device || {};

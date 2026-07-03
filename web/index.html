@@ -40,17 +40,36 @@
       <div class="lg:col-span-2 bg-white rounded shadow p-4">
         <div class="flex items-center justify-between mb-3">
           <h2 class="font-semibold">实时画面</h2>
-          <div class="flex gap-2">
-            <button @click="loadScreenshot()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">刷新</button>
-            <button @click="toggleAutoRefresh()" class="text-xs px-3 py-1 rounded"
-              :class="autoRefresh ? 'bg-emerald-500 text-white' : 'bg-slate-100'">
-              <span x-text="autoRefresh ? '⏹ 停止' : '▶ 自动刷新'"></span>
+          <div class="flex items-center gap-2 text-xs">
+            <button @click="toggleStream()" class="px-3 py-1 rounded font-medium"
+              :class="streaming ? 'bg-rose-500 text-white hover:bg-rose-600' : 'bg-emerald-500 text-white hover:bg-emerald-600'">
+              <span x-text="streaming ? '⏹ 停止投屏' : '▶ 开始投屏'"></span>
+            </button>
+            <button @click="loadScreenshot()" class="bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">单张</button>
+            <button @click="toggleAutoRefresh()" class="px-3 py-1 rounded"
+              :class="autoRefresh ? 'bg-slate-500 text-white' : 'bg-slate-100 hover:bg-slate-200'">
+              <span x-text="autoRefresh ? '⏹ 自动刷新' : '▶ 自动刷新'"></span>
             </button>
           </div>
         </div>
+        <div class="flex items-center gap-2 mb-2 text-xs">
+          <span class="px-2 py-0.5 rounded"
+            :class="{
+              'bg-slate-100 text-slate-500': streamStatus === '未连接',
+              'bg-amber-100 text-amber-700': streamStatus === '连接中',
+              'bg-emerald-100 text-emerald-700': streamStatus === '直播中',
+              'bg-rose-100 text-rose-700': streamStatus === '已断开' || streamStatus === '错误',
+            }"
+            x-text="streamStatus"></span>
+          <span class="text-slate-500" x-show="streaming" x-text="streamFps + ' fps'"></span>
+          <span class="text-rose-500" x-show="streaming && streamStatus === '错误'" x-text="streamError"></span>
+        </div>
         <div class="bg-black rounded flex items-center justify-center min-h-[400px]">
-          <img :src="screenshotSrc" x-show="screenshotSrc" class="max-h-[600px]" alt="screenshot" />
-          <div x-show="!screenshotSrc" class="text-slate-400 text-sm py-20">无画面</div>
+          <!-- 投屏画面优先;未投屏时回退到单张截图 -->
+          <img :src="streamSrc || screenshotSrc" x-show="streamSrc || screenshotSrc" class="max-h-[600px]" alt="screen" />
+          <div x-show="!streamSrc && !screenshotSrc" class="text-slate-400 text-sm py-20">
+            点「开始投屏」查看实时画面,或点「单张」抓一张快照
+          </div>
         </div>
       </div>
       <div class="bg-white rounded shadow p-4">

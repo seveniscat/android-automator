@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     device_serial: str = ""
     atx_port: int = 7912
 
+    # ---- Web 实时投屏 ----
+    # 抓帧帧率(u2 截图实测约 2-5fps,设置过高会被截图耗时限制)
+    stream_fps: int = 4
+    # JPEG 编码质量(1-100),越低带宽越小
+    stream_quality: int = 60
+    # 投屏画面最大宽度像素(0=不缩放,>0 按比例缩小降带宽)
+    stream_max_width: int = 720
+
     # ---- 存储 ----
     db_url: str = f"sqlite:///{PROJECT_ROOT / 'data' / 'automator.db'}"
     screenshot_dir: Path = PROJECT_ROOT / "data" / "screenshots"

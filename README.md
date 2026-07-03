@@ -10,6 +10,7 @@
 - **真机优先**:基于 openatx/uiautomator2,USB/WiFi 直连,调用速度快
 - **YAML DSL 流程编排**:写 YAML 即可编排多步任务,支持变量插值、断言、抽取(爬虫)
 - **Web 控制台**:设备实时画面 / 流程编辑 / 任务派发 / 运行回放(每步截图)
+- **Web 实时投屏**:WebSocket 把手机屏幕镜像到浏览器,多客户端共享抓帧,可边跑任务边看画面
 - **分层可扩展**:`Device` / `Perception` / `Planner` 均为抽象接口
   - 未来接 **LLM Planner** 即可升级为"AI 自主任务"模式
   - 未来接 **OCR/VLM** 即可让流程"看屏幕做事"
@@ -151,6 +152,7 @@ steps:
 | GET  | `/api/system/env` | 环境信息 + 可用步骤 |
 | GET  | `/api/devices` | 设备列表 + 当前连接 |
 | GET  | `/api/devices/screenshot` | 实时截图(PNG) |
+| WS   | `/api/devices/stream` | 实时投屏(WebSocket, JPEG 帧) |
 | GET  | `/api/devices/hierarchy` | UI 层级 XML |
 | GET/POST/PUT/DELETE | `/api/flows` | 流程 CRUD |
 | POST | `/api/flows/validate` | 校验 YAML |
@@ -162,6 +164,22 @@ steps:
 | GET  | `/api/runs/{id}/screenshot/{step}` | 单步截图 |
 
 完整交互文档:启动后访问 http://localhost:8000/docs
+
+### 📺 Web 实时投屏
+
+打开 Web 控制台「设备」页 → 点「开始投屏」,手机屏幕即镜像到浏览器。
+
+- **协议**:WebSocket `/api/devices/stream`。服务端先发一帧 JSON `{type:"hello",fps}`,
+  之后持续推 binary(JPEG);设备异常时发 `{type:"error",detail}`。
+- **共享抓帧**:后台单例 `StreamHub` 起一个抓帧线程,所有浏览器标签共享同一份抓帧,
+  不会因多开页面而重复抓帧压垮设备。首个客户端连接时启动,全部断开后自动停止。
+- **帧率/带宽**:受 u2 截图耗时限制,实测约 2–5fps;可通过 `.env` 调节:
+  ```ini
+  AUTOMATOR_STREAM_FPS=4           # 抓帧帧率
+  AUTOMATOR_STREAM_QUALITY=60      # JPEG 质量 1-100
+  AUTOMATOR_STREAM_MAX_WIDTH=720   # 最大宽度(0=不缩放)
+  ```
+- **与任务并发**:任务运行期间投屏不中断;由于 u2 调用偶有竞争,画面可能偶发卡顿,属正常。
 
 ---
 

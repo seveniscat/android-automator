@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect
 
+from ...config import settings
 from ...device.exceptions import DeviceError, DeviceNotFoundError
 from ...device.manager import DeviceManager
+from ...perception.stream import get_stream_hub
 from ..deps import get_dm, get_repo
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -71,3 +74,34 @@ async def reset_connection(dm: DeviceManager = Depends(get_dm)):
     """强制重置设备连接(下次自动重连)。"""
     dm.reset()
     return {"ok": True, "msg": "连接已重置"}
+
+
+@router.websocket("/stream")
+async def stream(ws: WebSocket):
+    """实时投屏 WebSocket 端点(仅展示,不操控)。
+
+    协议:
+        - 服务端先发一帧 JSON 文本: {"type":"hello","fps":<int>}
+        - 之后持续发 binary 帧(JPEG bytes)。
+        - 设备离线/抓帧异常时发 JSON 文本: {"type":"error","detail":<msg>}。
+    多个客户端共享同一份抓帧(StreamHub fan-out)。
+    """
+    hub = get_stream_hub()
+    sub = hub.subscribe()
+    await ws.accept()
+    await ws.send_text(json.dumps({"type": "hello", "fps": settings.stream_fps}))
+    try:
+        while True:
+            # 长时间无帧(15s)视为异常,断开让前端重连
+            frame = await asyncio.wait_for(sub.queue.get(), timeout=15.0)
+            ftype = frame.get("type")
+            if ftype == "error":
+                await ws.send_text(json.dumps(frame))
+            elif ftype == "frame":
+                await ws.send_bytes(frame["data"])
+    except (WebSocketDisconnect, asyncio.TimeoutError, asyncio.CancelledError):
+        pass
+    except Exception:
+        pass
+    finally:
+        hub.unsubscribe(sub)

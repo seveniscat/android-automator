@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -41,6 +40,10 @@ async def lifespan(app: FastAPI):
     logger.info("Automator 关闭中...")
     sched.shutdown(wait=False)
     get_executor().shutdown(wait=False)
+    # 停止投屏抓帧线程(若有订阅者仍在,daemon 也会随进程退出,这里显式收尾)
+    from .perception.stream import get_stream_hub
+
+    get_stream_hub().stop()
     logger.info("已退出")
 
 
