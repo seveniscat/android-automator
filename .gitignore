@@ -33,3 +33,6 @@ flows/*.log
 .ruff_cache/
 htmlcov/
 .coverage
+
+# 含真实业务信息的示例(不公开)
+flows/examples/04_jht_real.yaml
