@@ -1,0 +1,54 @@
+name: 进货通-商品列表探测
+description: |
+  真实业务流程:启动进货通 APP,进入"商品列表",
+  抽取页面上的所有可见文本(content-desc)。
+  演示 Flutter APP 的 content-desc 定位 + 数据抽取。
+tags: [进货通, 真实业务, flutter]
+
+variables:
+  pkg: com.bloks.dealerorders
+
+steps:
+  # 1. 启动进货通
+  - start_app:
+      package: "${pkg}"
+  - wait:
+      seconds: 6
+
+  # 2. 断言首页加载完成(商品列表入口存在)
+  - assert:
+      exists:
+        content_desc: "商品列表"
+        timeout: 8
+
+  # 3. 进入商品列表
+  - click:
+      content_desc: "商品列表"
+  - wait:
+      seconds: 3
+
+  # 4. 截图记录商品列表页
+  - wait:
+      seconds: 1
+
+  # 5. 抽取页面所有节点的 content-desc(Flutter 文字都在这里)
+  - extract:
+      as: page_labels
+      list: "*"                              # 所有 node
+      where: label                           # 只保留 label(content-desc)非空的
+      fields:
+        label: content-desc
+        clickable: clickable
+      limit: 50
+
+  # 6. 抽取结算栏金额(单值)
+  - extract:
+      as: settlement_text
+      from:
+        content_desc: "立即结算"
+
+  # 7. 返回
+  - press:
+      key: back
+  - wait:
+      seconds: 1

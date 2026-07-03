@@ -1,0 +1,28 @@
+# 演示流程:启动系统设置并验证标题
+# 适合首次跑通流程的 smoke test
+name: 设置应用演示
+description: 启动系统设置 → 等待加载 → 断言标题 → 抽取标题文本
+tags: [demo, smoke]
+
+variables:
+  pkg: com.android.settings
+
+steps:
+  - start_app:
+      package: "${pkg}"
+  - wait:
+      seconds: 2
+  - click:
+      text_contains: "网络"
+      timeout: 5
+  - wait:
+      seconds: 1
+  - press:
+      key: back
+  - wait:
+      seconds: 1
+  - assert:
+      exists: { text_contains: "设置" }
+  - extract:
+      as: current_app
+      from: { text_contains: "设置" }

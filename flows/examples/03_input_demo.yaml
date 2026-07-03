@@ -1,0 +1,30 @@
+# 输入演示:打开搜索框并输入文本
+name: 搜索输入演示
+description: 启动设置 → 点击搜索 → 输入关键字 → 断言结果
+tags: [demo, input]
+
+variables:
+  keyword: 蓝牙
+
+steps:
+  - start_app:
+      package: com.android.settings
+  - wait:
+      seconds: 2
+
+  # 点击搜索图标(部分机型 text 是"搜索",部分是 content_desc)
+  - click:
+      text_contains: "搜索"
+      timeout: 5
+
+  - wait:
+      seconds: 1
+
+  - input:
+      text: "${keyword}"
+
+  - wait:
+      seconds: 2
+
+  - assert:
+      exists: { text_contains: "${keyword}" }

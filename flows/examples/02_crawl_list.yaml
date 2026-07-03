@@ -1,0 +1,47 @@
+# 爬虫示例:滚动列表并抽取每项文本
+# 演示 extract + swipe + 变量传递
+name: 列表滚动抓取
+description: 反复下滑,每次抽取当前可见的列表项文本
+tags: [crawler, demo]
+
+variables:
+  max_scrolls: 3
+
+steps:
+  # 假设当前已在某个含列表的页面
+  - wait:
+      seconds: 1
+
+  # 第一次抽取
+  - extract:
+      as: items_0
+      list: "android.widget.TextView"
+      fields:
+        text: text
+        rid: resource-id
+
+  - swipe:
+      direction: up
+      scale: 0.5
+
+  - wait:
+      seconds: 1
+
+  - extract:
+      as: items_1
+      list: "android.widget.TextView"
+      fields:
+        text: text
+
+  - swipe:
+      direction: up
+      scale: 0.5
+
+  - wait:
+      seconds: 1
+
+  - extract:
+      as: items_2
+      list: "android.widget.TextView"
+      fields:
+        text: text

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automator · Android 自动化平台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen" x-data="automatorApp()">
+  <!-- 顶栏 -->
+  <header class="bg-slate-900 text-white shadow">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
+      <div class="text-lg font-bold">🤖 Automator</div>
+      <nav class="flex gap-1 text-sm">
+        <template x-for="t in tabs" :key="t.id">
+          <button
+            @click="tab = t.id"
+            :class="tab === t.id ? 'bg-slate-700' : 'hover:bg-slate-800'"
+            class="px-3 py-1.5 rounded transition"
+            x-text="t.label"
+          ></button>
+        </template>
+      </nav>
+      <div class="ml-auto flex items-center gap-3 text-xs">
+        <span
+          class="px-2 py-1 rounded"
+          :class="device.alive ? 'bg-emerald-500' : 'bg-rose-500'"
+          x-text="device.alive ? '● 设备在线' : '○ 设备离线'"
+        ></span>
+        <span class="text-slate-300" x-text="device.model || '—'"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- ===== 设备面板 ===== -->
+    <section x-show="tab === 'device'" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 bg-white rounded shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold">实时画面</h2>
+          <div class="flex gap-2">
+            <button @click="loadScreenshot()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">刷新</button>
+            <button @click="toggleAutoRefresh()" class="text-xs px-3 py-1 rounded"
+              :class="autoRefresh ? 'bg-emerald-500 text-white' : 'bg-slate-100'">
+              <span x-text="autoRefresh ? '⏹ 停止' : '▶ 自动刷新'"></span>
+            </button>
+          </div>
+        </div>
+        <div class="bg-black rounded flex items-center justify-center min-h-[400px]">
+          <img :src="screenshotSrc" x-show="screenshotSrc" class="max-h-[600px]" alt="screenshot" />
+          <div x-show="!screenshotSrc" class="text-slate-400 text-sm py-20">无画面</div>
+        </div>
+      </div>
+      <div class="bg-white rounded shadow p-4">
+        <h2 class="font-semibold mb-3">设备信息</h2>
+        <dl class="text-sm space-y-1.5" x-show="device.alive">
+          <template x-for="[k, v] in Object.entries(deviceInfoRows())" :key="k">
+            <div class="flex"><dt class="w-24 text-slate-500" x-text="k"></dt><dd x-text="v || '—'"></dd></div>
+          </template>
+        </dl>
+        <div x-show="!device.alive" class="text-sm text-rose-500">
+          <p x-text="device.error || '设备未连接'"></p>
+          <p class="mt-2 text-slate-500">请确认:① USB 调试已开启 ② 已运行 <code>python scripts/init_device.py</code></p>
+        </div>
+        <div class="mt-4 pt-3 border-t space-y-2">
+          <button @click="resetDevice()" class="w-full text-xs bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded">重置连接</button>
+          <a href="/api/devices/hierarchy" target="_blank" class="block text-center text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded">查看 UI 层级 XML</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 流程面板 ===== -->
+    <section x-show="tab === 'flows'" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="bg-white rounded shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold">流程列表</h2>
+          <button @click="newFlow()" class="text-xs bg-indigo-500 text-white px-3 py-1 rounded">+ 新建</button>
+        </div>
+        <div class="space-y-1 max-h-[600px] overflow-auto">
+          <template x-for="f in flows" :key="f.id">
+            <div @click="selectFlow(f.id)"
+              :class="selectedFlow?.id === f.id ? 'bg-indigo-50 border-indigo-300' : 'hover:bg-slate-50'"
+              class="border rounded p-2 cursor-pointer">
+              <div class="text-sm font-medium" x-text="f.name"></div>
+              <div class="text-xs text-slate-500" x-text="f.description"></div>
+            </div>
+          </template>
+          <div x-show="flows.length === 0" class="text-xs text-slate-400 text-center py-8">暂无流程</div>
+        </div>
+      </div>
+      <div class="lg:col-span-2 bg-white rounded shadow p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <input x-model="flowForm.name" placeholder="流程名称"
+            class="flex-1 border rounded px-2 py-1 text-sm" />
+          <button @click="validateFlow()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">校验</button>
+          <button @click="saveFlow()" class="text-xs bg-emerald-500 text-white px-3 py-1 rounded">保存</button>
+          <button @click="deleteFlow()" x-show="selectedFlow"
+            class="text-xs bg-rose-100 hover:bg-rose-200 px-3 py-1 rounded">删除</button>
+        </div>
+        <textarea x-model="flowForm.yaml" rows="20"
+          class="w-full font-mono text-xs border rounded p-2 bg-slate-50"
+          placeholder="name: 演示流程&#10;steps:&#10;  - start_app: { package: 'com.tencent.mm' }&#10;  - wait: { seconds: 2 }&#10;  - click: { text: '通讯录' }"></textarea>
+        <div x-show="validationMsg" class="mt-2 text-xs"
+          :class="validationOk ? 'text-emerald-600' : 'text-rose-600'" x-text="validationMsg"></div>
+      </div>
+    </section>
+
+    <!-- ===== 任务面板 ===== -->
+    <section x-show="tab === 'tasks'" class="bg-white rounded shadow p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold">任务列表</h2>
+        <button @click="loadTasks()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">刷新</button>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-500 text-xs uppercase">
+          <tr>
+            <th class="text-left p-2">ID</th>
+            <th class="text-left p-2">流程</th>
+            <th class="text-left p-2">状态</th>
+            <th class="text-left p-2">创建时间</th>
+            <th class="text-left p-2">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="t in tasks" :key="t.id">
+            <tr class="border-b hover:bg-slate-50">
+              <td class="p-2" x-text="t.id"></td>
+              <td class="p-2" x-text="t.flow_name"></td>
+              <td class="p-2">
+                <span class="px-2 py-0.5 rounded text-xs"
+                  :class="statusClass(t.status)" x-text="t.status"></span>
+              </td>
+              <td class="p-2 text-xs text-slate-500" x-text="fmtTime(t.created_at)"></td>
+              <td class="p-2 space-x-1">
+                <button @click="runTask(t.id)" class="text-xs bg-indigo-500 text-white px-2 py-0.5 rounded">运行</button>
+                <a :href="`#runs:${t.id}`" @click.prevent="tab='runs'; runsFilter=t.id; loadRuns()"
+                  class="text-xs text-indigo-500">运行记录</a>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="tasks.length === 0"><td colspan="5" class="text-center text-slate-400 py-8">暂无任务</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===== 运行记录 ===== -->
+    <section x-show="tab === 'runs'" class="space-y-4">
+      <div class="bg-white rounded shadow p-4">
+        <div class="flex items-center gap-3 mb-3">
+          <h2 class="font-semibold">运行记录</h2>
+          <select x-model="runsFilter" @change="loadRuns()" class="text-sm border rounded px-2 py-1">
+            <option value="">全部任务</option>
+            <template x-for="t in tasks" :key="t.id">
+              <option :value="t.id" x-text="`#${t.id} ${t.flow_name}`"></option>
+            </template>
+          </select>
+          <button @click="loadRuns()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">刷新</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          <template x-for="r in runs" :key="r.id">
+            <div @click="selectRun(r.id)"
+              :class="selectedRunId === r.id ? 'border-indigo-400 bg-indigo-50' : 'hover:bg-slate-50'"
+              class="border rounded p-2 cursor-pointer text-xs">
+              <div class="flex justify-between">
+                <span class="font-mono">#<span x-text="r.id"></span></span>
+                <span class="px-1.5 py-0.5 rounded"
+                  :class="r.status === 'success' ? 'bg-emerald-100 text-emerald-700'
+                       : r.status === 'failed' ? 'bg-rose-100 text-rose-700'
+                       : 'bg-amber-100 text-amber-700'"
+                  x-text="r.status"></span>
+              </div>
+              <div class="text-slate-500 mt-1" x-text="fmtTime(r.started_at)"></div>
+              <div class="text-slate-500" x-text="(r.duration_ms/1000).toFixed(1) + 's'"></div>
+            </div>
+          </template>
+          <div x-show="runs.length === 0" class="col-span-full text-center text-slate-400 py-8 text-sm">暂无运行记录</div>
+        </div>
+      </div>
+      <div class="bg-white rounded shadow p-4" x-show="selectedRun">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold">运行详情 #<span x-text="selectedRun?.id"></span></h2>
+          <div class="text-xs text-slate-500">
+            <span x-show="selectedRun?.error" class="text-rose-500" x-text="selectedRun?.error"></span>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ol class="space-y-2">
+            <template x-for="s in selectedRun?.steps || []" :key="s.index">
+              <li class="flex gap-2 text-xs">
+                <span :class="s.success ? 'text-emerald-500' : 'text-rose-500'"
+                  x-text="s.success ? '✓' : '✗'"></span>
+                <div class="flex-1">
+                  <div><span class="font-medium" x-text="s.step_name"></span>
+                    <span class="text-slate-400 ml-1" x-text="s.step_type"></span>
+                    <span class="text-slate-400 ml-1" x-text="(s.duration_ms/1000).toFixed(2)+'s'"></span>
+                  </div>
+                  <div class="text-slate-500" x-text="s.detail"></div>
+                  <div class="text-rose-500" x-show="s.error" x-text="s.error"></div>
+                </div>
+                <a x-show="s.screenshot_path"
+                  :href="`/api/runs/${selectedRun.id}/screenshot/${s.index}`" target="_blank"
+                  class="text-indigo-500">截图</a>
+              </li>
+            </template>
+          </ol>
+          <div>
+            <h3 class="text-xs font-semibold text-slate-500 uppercase mb-2">抽取数据</h3>
+            <pre class="text-xs bg-slate-50 border rounded p-2 max-h-[400px] overflow-auto"
+              x-text="JSON.stringify(selectedRun?.extracted_data || {}, null, 2)"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 系统 ===== -->
+    <section x-show="tab === 'system'" class="bg-white rounded shadow p-4 text-sm">
+      <h2 class="font-semibold mb-3">系统信息</h2>
+      <dl class="grid grid-cols-2 gap-2">
+        <template x-for="[k, v] in Object.entries(sysInfo)" :key="k">
+          <div class="border rounded p-2">
+            <dt class="text-xs text-slate-500" x-text="k"></dt>
+            <dd class="font-mono text-xs break-all" x-text="JSON.stringify(v)"></dd>
+          </div>
+        </template>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="text-center text-xs text-slate-400 py-4">
+    Automator v0.1.0 · 基于 uiautomator2
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
