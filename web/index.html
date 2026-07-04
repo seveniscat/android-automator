@@ -127,6 +127,56 @@
 
       <!-- 右:动作面板 + 日志 -->
       <div class="bg-white rounded shadow p-4 flex flex-col">
+        <!-- ⏺ 录制区 -->
+        <div class="mb-3 pb-3 border-b">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="font-semibold flex items-center gap-1.5">
+              <span class="text-rose-500">⏺</span> 录制
+              <span x-show="recActive" class="text-xs font-normal text-rose-500 animate-pulse">录制中…</span>
+            </h2>
+            <span class="text-xs text-slate-400" x-text="recSteps.length + ' 步'"></span>
+          </div>
+          <input x-model="recName" placeholder="流程名(留空自动生成)"
+            class="w-full text-xs border rounded px-2 py-1 mb-2" />
+          <div class="flex items-center gap-1.5 mb-2">
+            <button @click="recActive ? recStop() : recStart()"
+              class="text-xs px-3 py-1 rounded font-medium"
+              :class="recActive ? 'bg-rose-500 text-white' : 'bg-slate-700 text-white hover:bg-slate-800'">
+              <span x-text="recActive ? '⏹ 停止' : '⏺ 开始录制'"></span>
+            </button>
+            <button @click="recGenYaml()" :disabled="recSteps.length === 0"
+              class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded disabled:opacity-50">预览 YAML</button>
+            <button @click="recSaveAsFlow()" :disabled="recSteps.length === 0"
+              class="text-xs bg-emerald-500 text-white px-3 py-1 rounded disabled:opacity-50">保存为流程</button>
+            <button @click="recReset()" x-show="recSteps.length > 0"
+              class="text-xs text-slate-400 hover:text-rose-500 px-2 py-1">清空</button>
+          </div>
+          <label class="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+            <input type="checkbox" x-model="recSmartLocator" class="rounded" />
+            智能定位(把坐标点击升级为元素定位符,回放更稳健)
+          </label>
+
+          <!-- 已录步骤 -->
+          <div x-show="recSteps.length > 0" class="mt-2 space-y-0.5 max-h-[140px] overflow-auto text-xs">
+            <template x-for="s in recSteps" :key="s.index">
+              <div class="flex items-center gap-1.5 group">
+                <span :class="s.success ? 'text-emerald-500' : 'text-rose-400'"
+                  x-text="s.success ? '✓' : '✗'"></span>
+                <span class="font-mono text-slate-600" x-text="s.type"></span>
+                <span class="text-slate-400 truncate flex-1" x-text="s.target"></span>
+                <button @click="recRemoveStep(s.index)"
+                  class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100">✕</button>
+              </div>
+            </template>
+          </div>
+
+          <!-- YAML 预览 -->
+          <div x-show="recShowYaml" class="mt-2">
+            <textarea x-model="recYaml" rows="8"
+              class="w-full font-mono text-xs border rounded p-2 bg-slate-50"></textarea>
+          </div>
+        </div>
+
         <h2 class="font-semibold mb-3">动作面板</h2>
         <!-- 动作选择 -->
         <select x-model="pgAction" @change="selectPgAction(pgAction)" class="text-sm border rounded px-2 py-1 mb-2">

@@ -20,6 +20,8 @@ from pydantic import BaseModel, Field
 from ...action.u2_actions import U2Actions
 from ...device.exceptions import DeviceError, DeviceNotFoundError
 from ...device.manager import DeviceManager
+from ...locator import resolve_click_locator
+from ...recorder import get_recorder
 from ..deps import get_dm
 
 router = APIRouter(prefix="/api/playground", tags=["playground"])
@@ -36,10 +38,14 @@ class ActionRequest(BaseModel):
 
     action: 动作类型,见 _ACTION_METHODS。
     params: 该动作的参数(透传给 U2Actions 对应方法)。
+    smart_locator: 仅录制场景对 click 生效 —— 为 True 时点击会抓 UI 层级,
+        把坐标点击升级为元素定位器(text/resource_id/content_desc),
+        生成的 YAML 更稳健。默认 True。
     """
 
     action: str = Field(..., description="动作类型")
     params: dict = Field(default_factory=dict, description="动作参数")
+    smart_locator: bool = Field(default=True, description="录制时坐标点击是否升级为元素定位器")
 
 
 class ActionResult(BaseModel):
@@ -73,7 +79,12 @@ def _dispatch(actions: U2Actions, action: str, params: dict):
 
 @router.post("/action")
 async def run_action(req: ActionRequest, dm: DeviceManager = Depends(get_dm)):
-    """即时执行一个设备动作并返回结果(不落库)。"""
+    """即时执行一个设备动作并返回结果(不落库)。
+
+    若录制中(`GET /api/recorder/state` 的 active=true),本次成功动作会自动
+    翻译成 YAML 步骤并暂存到录制器;对 click 动作,开启 smart_locator 时
+    会抓取 UI 层级把坐标点击升级为元素定位器。
+    """
     try:
         actions = _build_actions(dm, humanize=False)
         result = await asyncio.to_thread(_dispatch, actions, req.action, req.params)
@@ -83,6 +94,22 @@ async def run_action(req: ActionRequest, dm: DeviceManager = Depends(get_dm)):
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"执行失败: {e}") from e
+
+    # ---- 录制埋点(单一拦截点:所有 playground 操作都经过这里)----
+    recorder = get_recorder()
+    if recorder.active:
+        locator = None
+        # 仅对坐标点击尝试智能定位;click_by 自带定位器,无需再解析
+        # 复用 actions 持有的 device,避免二次连接(与执行用的是同一设备)
+        if req.action == "click" and req.smart_locator:
+            try:
+                locator = await asyncio.to_thread(
+                    resolve_click_locator, actions.device,
+                    int(req.params.get("x", 0)), int(req.params.get("y", 0)),
+                )
+            except Exception:  # noqa: BLE001 —— 定位失败不阻塞,回退坐标
+                locator = None
+        recorder.record(req.action, req.params, result.success, locator=locator)
 
     return ActionResult(
         action=result.name,

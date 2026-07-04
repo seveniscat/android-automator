@@ -55,6 +55,15 @@ function automatorApp() {
     pgLogs: [],               // 操作日志 [{action,target,success,detail,duration_ms,ts}]
     pgCrosshair: null,        // 点击投屏时显示的十字光标 {x,y,deviceX,deviceY}
 
+    // 录制
+    recActive: false,         // 是否录制中
+    recSmartLocator: true,    // 录制点击时是否启用智能定位
+    recSteps: [],             // 已录步骤 [{index,type,params,target,success}]
+    recName: "",              // 录制/生成的流程名
+    recYaml: "",              // 生成的 YAML 预览
+    recShowYaml: false,       // 是否展开 YAML 预览
+    _recPoll: null,           // 录制状态轮询定时器
+
     // 流程
     flows: [],
     selectedFlow: null,
@@ -277,7 +286,12 @@ function automatorApp() {
         const r = await fetch("/api/playground/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: act, params: p }),
+          // 录制时把智能定位开关传给后端(仅对 click 生效)
+          body: JSON.stringify({
+            action: act,
+            params: p,
+            smart_locator: this.recSmartLocator,
+          }),
         });
         const data = await r.json();
         if (!r.ok) {
@@ -339,6 +353,89 @@ function automatorApp() {
     },
     clearPgLogs() {
       this.pgLogs = [];
+    },
+
+    // ---- 录制 ----
+    async recStart() {
+      const name = this.recName || "";
+      const r = await fetch("/api/recorder/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }).then((r) => r.json()).catch(() => ({}));
+      this.recActive = true;
+      this.recShowYaml = false;
+      this.recYaml = "";
+      this._applyRecState(r);
+      // 开启轮询,实时拉取已录步骤
+      if (this._recPoll) clearInterval(this._recPoll);
+      this._recPoll = setInterval(() => this.recRefresh(), 1500);
+    },
+    async recStop() {
+      await fetch("/api/recorder/stop", { method: "POST" });
+      this.recActive = false;
+      if (this._recPoll) {
+        clearInterval(this._recPoll);
+        this._recPoll = null;
+      }
+      await this.recRefresh();
+    },
+    async recReset() {
+      if (!confirm("清空已录步骤?")) return;
+      await fetch("/api/recorder/reset", { method: "POST" });
+      this.recActive = false;
+      this.recSteps = [];
+      this.recYaml = "";
+      this.recShowYaml = false;
+      if (this._recPoll) {
+        clearInterval(this._recPoll);
+        this._recPoll = null;
+      }
+    },
+    async recRefresh() {
+      const r = await fetch("/api/recorder/state").then((r) => r.json()).catch(() => ({}));
+      this._applyRecState(r);
+    },
+    _applyRecState(r) {
+      this.recActive = !!r.active;
+      this.recSteps = r.steps || [];
+      if (r.name) this.recName = r.name;
+    },
+    async recRemoveStep(index) {
+      await fetch(`/api/recorder/step/${index}`, { method: "DELETE" });
+      await this.recRefresh();
+    },
+    async recGenYaml() {
+      const r = await fetch(
+        `/api/recorder/yaml?name=${encodeURIComponent(this.recName || "")}`
+      ).then((r) => r.json()).catch(() => ({}));
+      this.recYaml = r.yaml || "";
+      this.recShowYaml = true;
+    },
+    async recSaveAsFlow() {
+      if (!this.recYaml) await this.recGenYaml();
+      if (!this.recYaml) return;
+      const name = this.recName || "录制流程";
+      const r = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          yaml: this.recYaml,
+          description: "由录制生成",
+        }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        alert(`已保存为流程 #${data.id}`);
+        await this.loadFlows();
+        // 跳转到流程页并选中刚保存的流程
+        this.tab = "flows";
+        await this.selectFlow(data.id);
+      } else {
+        const e = await r.json().catch(() => ({}));
+        alert("保存失败: " + (e.detail || r.status));
+      }
     },
 
     // ---- 流程 ----

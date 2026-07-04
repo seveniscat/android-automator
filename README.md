@@ -12,6 +12,7 @@
 - **Web 控制台**:设备实时画面 / 流程编辑 / 任务派发 / 运行回放(每步截图)
 - **Web 实时投屏**:WebSocket 把手机屏幕镜像到浏览器,多客户端共享抓帧,可边跑任务边看画面
 - **Playground**:在浏览器里点击画面即可操控手机、或用动作面板即时执行点击/滑动/输入/按键等单步动作,快速探索设备能力(不落库)
+- **自动化录制**:在 Playground 边操作边录,自动生成 YAML 流程(智能定位),一键保存重放
 - **分层可扩展**:`Device` / `Perception` / `Planner` 均为抽象接口
   - 未来接 **LLM Planner** 即可升级为"AI 自主任务"模式
   - 未来接 **OCR/VLM** 即可让流程"看屏幕做事"
@@ -157,6 +158,12 @@ steps:
 | GET  | `/api/devices/hierarchy` | UI 层级 XML |
 | GET  | `/api/playground/actions` | 列出可即时执行的动作 |
 | POST | `/api/playground/action` | 即时执行单动作(不落库) |
+| POST | `/api/recorder/start` | 开始录制(清空旧步骤) |
+| POST | `/api/recorder/stop` | 停止录制(保留步骤) |
+| POST | `/api/recorder/reset` | 清空已录步骤 |
+| GET  | `/api/recorder/state` | 录制状态 + 已录步骤 |
+| DELETE | `/api/recorder/step/{i}` | 删除第 i 步 |
+| GET  | `/api/recorder/yaml` | 预览生成的 YAML |
 | GET/POST/PUT/DELETE | `/api/flows` | 流程 CRUD |
 | POST | `/api/flows/validate` | 校验 YAML |
 | GET  | `/api/flows/steps/list` | 列出步骤类型 |
@@ -197,6 +204,16 @@ steps:
 - **快捷区**:返回/主页/最近/回车按键、四方向滑动,一键触发。
 - **操作日志**:每次动作记录动作名/目标/成败/耗时,最近 50 条。
 - 默认关闭人类化延迟(humanize=False),操作反馈即时;正式跑流程才在 YAML 里开启人类化。
+
+### ⏺ 自动化录制(边操作边生成 YAML)
+
+在 **Playground** 页面点「⏺ 开始录制」,之后每次操作(点击画面 / 动作面板 / 快捷按键)都会自动翻译成 YAML 步骤并暂存;停止后可预览生成的 YAML,一键「保存为流程」即可入库重放。无需手写 YAML,快速沉淀操作流程。
+
+- **可录动作**:`click` / `swipe` / `input` / `press` / `start_app` / `stop_app`(与 YAML DSL 步骤一一对应)。
+- **智能定位**(默认开):坐标点击会抓一次 UI 层级,把点击升级为元素定位器,按 `content_desc > text > resource_id` 优先级落步;找不到可定位元素才回退坐标。生成的流程跨分辨率/界面微调更稳健。可在录制区关闭,切回纯坐标录制。
+- **失败动作默认丢弃**:避免把失效步骤写进流程(可在代码里关)。
+- **状态不落库**:录制状态仅存内存,重启即清空,贴合 Playground 的探索定位;最终保存走已有的流程 CRUD。
+- **后处理**:已录步骤支持单条删除;「预览 YAML」可在保存前编辑调整;「保存为流程」直接提交到 `POST /api/flows`。
 
 ---
 
