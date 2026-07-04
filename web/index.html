@@ -90,6 +90,111 @@
       </div>
     </section>
 
+    <!-- ===== Playground ===== -->
+    <section x-show="tab === 'playground'" class="grid grid-cols-1 lg:grid-cols-3 gap-4"
+      x-init="$watch('tab', (v) => { if (v === 'playground') pgShot(); })">
+      <!-- 左:画面(可点击) -->
+      <div class="lg:col-span-2 bg-white rounded shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold">实时画面 <span class="text-xs font-normal text-slate-400">(点击画面触发设备点击)</span></h2>
+          <div class="flex items-center gap-2 text-xs">
+            <button @click="pgToggleStream()" class="px-3 py-1 rounded font-medium"
+              :class="pgStreamOn ? 'bg-rose-500 text-white' : 'bg-emerald-500 text-white'">
+              <span x-text="pgStreamOn ? '⏹ 停止投屏' : '▶ 投屏'"></span>
+            </button>
+            <button @click="pgShot()" class="bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded">单张</button>
+            <span class="text-slate-400" x-show="pgStreamOn" x-text="streamFps + ' fps'"></span>
+          </div>
+        </div>
+        <div class="bg-black rounded flex items-center justify-center min-h-[420px] relative">
+          <!-- 投屏优先,否则单张快照 -->
+          <img :src="pgStreamOn ? streamSrc : pgShotSrc"
+            x-show="(pgStreamOn && streamSrc) || pgShotSrc"
+            @click="pgClickScreen($event)"
+            class="max-h-[600px] cursor-crosshair select-none" alt="playground" draggable="false" />
+          <!-- 十字光标标记最近一次点击 -->
+          <div x-show="pgCrosshair" class="absolute pointer-events-none"
+            :style="pgCrosshairStyle()">
+            <div class="absolute -translate-x-1/2 -translate-y-1/2 text-emerald-400 text-2xl">+</div>
+          </div>
+          <div x-show="(pgStreamOn && !streamSrc) || (!pgStreamOn && !pgShotSrc)"
+            class="text-slate-400 text-sm py-20">
+            点「投屏」或「单张」获取画面,然后点击画面即可触发设备点击
+          </div>
+          <div x-show="pgBusy" class="absolute top-2 right-2 text-xs bg-amber-500 text-white px-2 py-1 rounded">执行中…</div>
+        </div>
+      </div>
+
+      <!-- 右:动作面板 + 日志 -->
+      <div class="bg-white rounded shadow p-4 flex flex-col">
+        <h2 class="font-semibold mb-3">动作面板</h2>
+        <!-- 动作选择 -->
+        <select x-model="pgAction" @change="selectPgAction(pgAction)" class="text-sm border rounded px-2 py-1 mb-2">
+          <template x-for="a in pgActions" :key="a.name">
+            <option :value="a.name" x-text="a.label + ' · ' + a.name"></option>
+          </template>
+        </select>
+        <div class="text-xs text-slate-500 mb-2" x-text="currentPgAction()?.hint"></div>
+
+        <!-- 动态参数表单 -->
+        <div class="space-y-2 mb-3">
+          <template x-for="[k, type] in Object.entries(currentPgAction()?.params || {})" :key="k">
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-slate-600 w-24" x-text="k + (type.endsWith('?') ? '' : '*')"></label>
+              <input x-model="pgParams[k]"
+                :placeholder="type"
+                class="flex-1 border rounded px-2 py-1 text-xs" />
+            </div>
+          </template>
+        </div>
+        <button @click="runPgAction()" :disabled="pgBusy"
+          class="w-full text-xs bg-indigo-500 text-white px-3 py-1.5 rounded disabled:opacity-50">
+          执行 <span x-text="currentPgAction()?.label"></span>
+        </button>
+
+        <!-- 快捷动作 -->
+        <div class="mt-3 pt-3 border-t">
+          <div class="text-xs text-slate-500 mb-1.5">快捷按键</div>
+          <div class="grid grid-cols-4 gap-1">
+            <button @click="runPgAction('press', {key:'back'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">返回</button>
+            <button @click="runPgAction('press', {key:'home'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">主页</button>
+            <button @click="runPgAction('press', {key:'recent'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">最近</button>
+            <button @click="runPgAction('press', {key:'enter'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">回车</button>
+          </div>
+          <div class="text-xs text-slate-500 mb-1.5 mt-2">方向滑动</div>
+          <div class="grid grid-cols-4 gap-1">
+            <button @click="runPgAction('swipe_direction', {direction:'up'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">↑</button>
+            <button @click="runPgAction('swipe_direction', {direction:'down'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">↓</button>
+            <button @click="runPgAction('swipe_direction', {direction:'left'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">←</button>
+            <button @click="runPgAction('swipe_direction', {direction:'right'})" class="text-xs bg-slate-100 hover:bg-slate-200 py-1 rounded">→</button>
+          </div>
+        </div>
+
+        <!-- 操作日志 -->
+        <div class="mt-3 pt-3 border-t flex-1 flex flex-col min-h-0">
+          <div class="flex items-center justify-between mb-1.5">
+            <div class="text-xs text-slate-500">操作日志</div>
+            <button @click="clearPgLogs()" class="text-xs text-slate-400 hover:text-slate-600">清空</button>
+          </div>
+          <div class="space-y-1 overflow-auto max-h-[280px] text-xs">
+            <template x-for="log in pgLogs" :key="log.ts + '-' + log.action">
+              <div class="border-l-2 pl-2 py-0.5"
+                :class="log.success ? 'border-emerald-400 bg-emerald-50' : 'border-rose-400 bg-rose-50'">
+                <div class="flex justify-between">
+                  <span class="font-mono font-medium" x-text="log.action"></span>
+                  <span :class="log.success ? 'text-emerald-600' : 'text-rose-600'"
+                    x-text="(log.success ? '✓' : '✗') + ' ' + log.duration_ms + 'ms'"></span>
+                </div>
+                <div class="text-slate-600" x-show="log.target" x-text="log.target"></div>
+                <div class="text-rose-500" x-show="log.detail && !log.success" x-text="log.detail"></div>
+              </div>
+            </template>
+            <div x-show="pgLogs.length === 0" class="text-slate-400 text-center py-4">暂无操作</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== 流程面板 ===== -->
     <section x-show="tab === 'flows'" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="bg-white rounded shadow p-4">

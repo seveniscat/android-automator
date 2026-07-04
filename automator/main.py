@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api.routes import devices, flows, runs, system, tasks
+from .api.routes import devices, flows, playground, runs, system, tasks
 from .config import PROJECT_ROOT, settings
 from .logging import logger, setup_logging
 from .storage.db import init_db
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(flows.router, prefix=api_prefix)
     app.include_router(tasks.router, prefix=api_prefix)
     app.include_router(runs.router, prefix=api_prefix)
+    app.include_router(playground.router, prefix=api_prefix)
 
     # ---- 静态资源 + 单页 ----
     web_dir = PROJECT_ROOT / "web"

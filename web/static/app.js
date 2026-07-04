@@ -18,6 +18,7 @@ function automatorApp() {
   return {
     tabs: [
       { id: "device", label: "设备" },
+      { id: "playground", label: "Playground" },
       { id: "flows", label: "流程" },
       { id: "tasks", label: "任务" },
       { id: "runs", label: "运行记录" },
@@ -36,12 +37,23 @@ function automatorApp() {
     streamStatus: "未连接", // 未连接 / 连接中 / 直播中 / 已断开 / 错误
     streamFps: 0,
     streamSrc: "",
+    streamError: "", // 投屏错误详情(空=无错误)
     _ws: null,
     _lastFrameTs: 0,
     _frameTimes: [],
     _blobUrl: null,
     _reconnectTimer: null,
     _userStopped: false,
+
+    // Playground
+    pgStreamOn: false,        // playground 是否开启投屏
+    pgShotSrc: "",            // playground 单张/投屏画面
+    pgAction: "click",        // 当前选中的动作
+    pgActions: [],            // 动作清单(来自 /api/playground/actions)
+    pgParams: {},             // 动作参数(动态表单绑定)
+    pgBusy: false,            // 动作执行中
+    pgLogs: [],               // 操作日志 [{action,target,success,detail,duration_ms,ts}]
+    pgCrosshair: null,        // 点击投屏时显示的十字光标 {x,y,deviceX,deviceY}
 
     // 流程
     flows: [],
@@ -69,6 +81,7 @@ function automatorApp() {
         this.loadTasks(),
         this.loadRuns(),
         this.loadSysInfo(),
+        this.initPlayground(),
       ]);
       // 周期刷新设备状态
       setInterval(() => this.loadDevice(), 5000);
@@ -115,6 +128,7 @@ function automatorApp() {
       this.streaming = true;
       this.streamStatus = "连接中";
       this.streamFps = 0;
+      this.streamError = "";
       this._frameTimes = [];
       try {
         this._ws = new WebSocket(this.streamUrl());
@@ -192,6 +206,7 @@ function automatorApp() {
       this.streamStatus = "未连接";
       this.streamSrc = "";
       this.streamFps = 0;
+      this.streamError = "";
     },
     deviceInfoRows() {
       const d = this.device || {};
@@ -203,6 +218,127 @@ function automatorApp() {
         resolution: (d.resolution || []).join("x"),
         atx: d.atx_version,
       };
+    },
+
+    // ---- Playground ----
+    async initPlayground() {
+      if (!this.pgActions.length) {
+        try {
+          const r = await fetch("/api/playground/actions").then((r) => r.json());
+          this.pgActions = r.actions || [];
+        } catch (_) {}
+      }
+      this.selectPgAction(this.pgAction);
+    },
+    currentPgAction() {
+      return this.pgActions.find((a) => a.name === this.pgAction) || null;
+    },
+    selectPgAction(name) {
+      this.pgAction = name;
+      // 重置参数表单:为每个参数建一个空字段
+      const params = {};
+      const meta = this.currentPgAction();
+      if (meta) {
+        for (const k of Object.keys(meta.params || {})) params[k] = "";
+      }
+      this.pgParams = params;
+      this.pgCrosshair = null;
+    },
+    // 点击投屏画面 → 换算成设备坐标 → 执行 click
+    async pgClickScreen(ev) {
+      if (this.pgBusy) return;
+      const img = ev.currentTarget;
+      const rect = img.getBoundingClientRect();
+      // 显示像素 → 图片自然尺寸(即设备分辨率)
+      const scaleX = img.naturalWidth / rect.width;
+      const scaleY = img.naturalHeight / rect.height;
+      const dx = Math.round((ev.clientX - rect.left) * scaleX);
+      const dy = Math.round((ev.clientY - rect.top) * scaleY);
+      this.pgCrosshair = {
+        x: ev.clientX - rect.left,
+        y: ev.clientY - rect.top,
+        deviceX: dx,
+        deviceY: dy,
+      };
+      await this.runPgAction("click", { x: dx, y: dy });
+    },
+    pgCrosshairStyle() {
+      if (!this.pgCrosshair) return "";
+      return `left:${this.pgCrosshair.x}px;top:${this.pgCrosshair.y}px`;
+    },
+    // 执行一个动作(action 可省略,默认用当前表单选中动作)
+    async runPgAction(action, params) {
+      if (this.pgBusy) return;
+      const act = action || this.pgAction;
+      const p = params || this._collectPgParams(act);
+      if (p === null) return; // 校验失败
+      this.pgBusy = true;
+      try {
+        const r = await fetch("/api/playground/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: act, params: p }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          this.pgLogs.unshift({
+            action: act, target: "", success: false,
+            detail: data.detail || "请求失败", duration_ms: 0, ts: Date.now(),
+          });
+        } else {
+          this.pgLogs.unshift({ ...data, ts: Date.now() });
+          // 动作完成后刷新画面(单张快照,带时间戳防缓存)
+          this.pgShotSrc = "/api/devices/screenshot?t=" + Date.now();
+        }
+      } catch (e) {
+        this.pgLogs.unshift({
+          action: act, target: "", success: false,
+          detail: String(e), duration_ms: 0, ts: Date.now(),
+        });
+      } finally {
+        this.pgBusy = false;
+        // 只保留最近 50 条
+        if (this.pgLogs.length > 50) this.pgLogs.length = 50;
+      }
+    },
+    // 从表单收集参数,做必要的类型转换与必填校验;返回 null 表示校验失败
+    _collectPgParams(action) {
+      const meta = this.pgActions.find((a) => a.name === action);
+      if (!meta) return {};
+      const out = {};
+      for (const [k, type] of Object.entries(meta.params || {})) {
+        const raw = (this.pgParams[k] ?? "").toString().trim();
+        const optional = type.endsWith("?");
+        if (raw === "") {
+          if (optional) continue;
+          alert(`参数 ${k} 必填`);
+          return null;
+        }
+        const base = optional ? type.slice(0, -1) : type;
+        if (base.startsWith("int")) out[k] = parseInt(raw, 10);
+        else if (base.startsWith("float")) out[k] = parseFloat(raw);
+        else if (base.startsWith("bool")) out[k] = raw === "true" || raw === "1";
+        else if (base.includes("|")) out[k] = raw; // 枚举字符串
+        else out[k] = raw;
+      }
+      return out;
+    },
+    // 启停 playground 投屏(复用设备页的 WS 实现)
+    pgToggleStream() {
+      this.pgStreamOn = !this.pgStreamOn;
+      if (this.pgStreamOn) {
+        this.streaming = true;
+        this.startStream();
+      } else {
+        this.stopStream();
+        this.streaming = false;
+      }
+    },
+    pgShot() {
+      this.pgShotSrc = "/api/devices/screenshot?t=" + Date.now();
+    },
+    clearPgLogs() {
+      this.pgLogs = [];
     },
 
     // ---- 流程 ----

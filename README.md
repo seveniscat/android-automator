@@ -11,6 +11,7 @@
 - **YAML DSL 流程编排**:写 YAML 即可编排多步任务,支持变量插值、断言、抽取(爬虫)
 - **Web 控制台**:设备实时画面 / 流程编辑 / 任务派发 / 运行回放(每步截图)
 - **Web 实时投屏**:WebSocket 把手机屏幕镜像到浏览器,多客户端共享抓帧,可边跑任务边看画面
+- **Playground**:在浏览器里点击画面即可操控手机、或用动作面板即时执行点击/滑动/输入/按键等单步动作,快速探索设备能力(不落库)
 - **分层可扩展**:`Device` / `Perception` / `Planner` 均为抽象接口
   - 未来接 **LLM Planner** 即可升级为"AI 自主任务"模式
   - 未来接 **OCR/VLM** 即可让流程"看屏幕做事"
@@ -154,6 +155,8 @@ steps:
 | GET  | `/api/devices/screenshot` | 实时截图(PNG) |
 | WS   | `/api/devices/stream` | 实时投屏(WebSocket, JPEG 帧) |
 | GET  | `/api/devices/hierarchy` | UI 层级 XML |
+| GET  | `/api/playground/actions` | 列出可即时执行的动作 |
+| POST | `/api/playground/action` | 即时执行单动作(不落库) |
 | GET/POST/PUT/DELETE | `/api/flows` | 流程 CRUD |
 | POST | `/api/flows/validate` | 校验 YAML |
 | GET  | `/api/flows/steps/list` | 列出步骤类型 |
@@ -180,6 +183,20 @@ steps:
   AUTOMATOR_STREAM_MAX_WIDTH=720   # 最大宽度(0=不缩放)
   ```
 - **与任务并发**:任务运行期间投屏不中断;由于 u2 调用偶有竞争,画面可能偶发卡顿,属正常。
+
+### 🎮 Playground(设备能力探索)
+
+打开 Web 控制台「Playground」页,可即时体验 automator 的设备操控能力,**操作不落库**,纯探索/调试用。
+
+- **点击画面即操控**:开启投屏后,直接点击画面任意位置,会按设备真实分辨率换算坐标并触发设备点击(画面上以十字光标标记点击点)。
+- **动作面板**:选择动作类型 → 填参数 → 执行,即时返回成功/耗时并刷新画面。支持:
+  - `click`(坐标点击)/ `click_by`(按 resource_id/text/content_desc 等定位点击)
+  - `swipe_direction`(方向滑动)/ `swipe`(坐标滑动)
+  - `input_text`(输入文本)/ `press`(系统按键)
+  - `start_app` / `stop_app`(启停应用)
+- **快捷区**:返回/主页/最近/回车按键、四方向滑动,一键触发。
+- **操作日志**:每次动作记录动作名/目标/成败/耗时,最近 50 条。
+- 默认关闭人类化延迟(humanize=False),操作反馈即时;正式跑流程才在 YAML 里开启人类化。
 
 ---
 
