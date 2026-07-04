@@ -1,0 +1,83 @@
+name: 进货通-商品列表全量采集
+description: |
+  采集进货通 APP 商品列表页的全部商品数据。
+  说明:本流程依赖 APP 端商品接口能正常返回数据。
+  若 APP 显示"加载失败,请重试",需先确认:
+    1. 测试环境后端服务是否正常
+    2. 当前账号是否有可购买商品 / 是否在活动周期内
+  首次运行时,先 dump 一个真实商品的结构(用 explore 步骤),
+  再根据实际字段调整下方 extract.fields 映射。
+tags: [进货通, 采集, 爬虫]
+
+variables:
+  pkg: com.bloks.dealerorders
+  # 要采集的分类 Tab(依次切换并各采一遍)
+  categories:
+    - 配额货品
+    - 新品专区
+  max_scrolls_per_category: 5   # 每个分类最多滚动几屏
+
+steps:
+  # 1. 启动 APP
+  - start_app:
+      package: "${pkg}"
+  - wait:
+      seconds: 6
+  - assert:
+      exists:
+        content_desc: "商品列表"
+        timeout: 8
+
+  # 2. 进入商品列表
+  - click:
+      content_desc: "商品列表"
+  - wait:
+      seconds: 3
+
+  # 3. 关键前置:断言商品数据已加载(否则整流程无意义)
+  #    如果这一步失败,说明 APP 后端返回失败,需先排查数据源
+  - assert:
+      not_exists:
+        content_desc_contains: "加载失败"
+      timeout: 8
+
+  # ===== 以下为数据采集主体(待 APP 数据正常后启用) =====
+  # 4. 遍历每个分类
+  #    (用循环需 Python Flow;YAML DSL 下需手动展开,
+  #     这里以"配额货品"为例,新品专区复制并改 content_desc 即可)
+
+  - click:
+      content_desc: "配额货品"
+  - wait:
+      seconds: 2
+
+  # 5. 首屏抽取(字段名需按真实商品结构调整)
+  - extract:
+      as: batch_0
+      list: "*"
+      where: label
+      fields:
+        label: content-desc
+        clickable: clickable
+      limit: 100
+
+  # 6. 滚动加载更多(重复 N 次)
+  - swipe:
+      direction: up
+      scale: 0.6
+  - wait:
+      seconds: 2
+  - extract:
+      as: batch_1
+      list: "*"
+      where: label
+      fields:
+        label: content-desc
+        clickable: clickable
+      limit: 100
+
+  # 7. 返回
+  - press:
+      key: back
+  - wait:
+      seconds: 1

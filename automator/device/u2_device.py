@@ -111,15 +111,49 @@ class U2Device(Device):
 
     def _elem_to_info(self, el) -> ElementInfo:
         info = el.info
-        bounds = info.get("bounds", [0, 0, 0, 0])
+        bounds = self._normalize_bounds(info.get("bounds", [0, 0, 0, 0]))
         return ElementInfo(
-            bounds=tuple(bounds),
+            bounds=bounds,
             resource_id=info.get("resourceName", "") or info.get("resourceId", ""),
             text=info.get("text", ""),
             class_name=info.get("className", ""),
             content_desc=info.get("contentDescription", ""),
             clickable=info.get("clickable", False),
         )
+
+    @staticmethod
+    def _normalize_bounds(bounds) -> tuple[int, int, int, int]:
+        """把 u2 各种 bounds 表示统一成 (left, top, right, bottom) 整数元组。
+
+        u2 不同版本可能返回:list / dict / namedtuple(可能是字段名 ltrb 或 bounds 对象)。
+        """
+        # list / tuple of ints
+        if isinstance(bounds, (list, tuple)):
+            nums = [x for x in bounds if isinstance(x, int)]
+            if len(nums) >= 4:
+                return tuple(nums[:4])
+        # dict 形式
+        if isinstance(bounds, dict):
+            try:
+                return (
+                    int(bounds.get("left", bounds.get("l", 0))),
+                    int(bounds.get("top", bounds.get("t", 0))),
+                    int(bounds.get("right", bounds.get("r", 0))),
+                    int(bounds.get("bottom", bounds.get("b", 0))),
+                )
+            except (TypeError, ValueError):
+                pass
+        # u2 Bounds 对象(有 ltrb 属性)
+        for attr in ("ltrb", "left"):
+            if hasattr(bounds, attr):
+                try:
+                    b = bounds.ltrb if hasattr(bounds, "ltrb") else (
+                        bounds.left, bounds.top, bounds.right, bounds.bottom
+                    )
+                    return tuple(int(x) for x in b)
+                except (TypeError, ValueError, AttributeError):
+                    break
+        return (0, 0, 0, 0)
 
     # ---- 感知 ----
     def screenshot(self) -> bytes:
