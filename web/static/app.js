@@ -79,6 +79,7 @@ function automatorApp() {
     runsFilter: "",
     selectedRunId: null,
     selectedRun: null,
+    productSort: "price", // 商品表格排序字段(可带 - 前缀表降序)
 
     // 系统
     sysInfo: {},
@@ -534,6 +535,78 @@ function automatorApp() {
     async selectRun(id) {
       this.selectedRunId = id;
       this.selectedRun = await fetch(`/api/runs/${id}`).then((r) => r.json());
+    },
+
+    /**
+     * 合并并去重抽取数据中的商品(batch_0/batch_1/...)。
+     * 仅当 extracted_data 含 batch_* 列表且元素带 title 字段时启用,
+     * 否则返回 null —— 调用方据此回退到原始 JSON 展示(其它 flow 不受影响)。
+     */
+    mergedProducts() {
+      const data = this.selectedRun?.extracted_data;
+      if (!data || typeof data !== "object") return null;
+      const batches = Object.keys(data)
+        .filter((k) => /^batch_\d+$/.test(k))
+        .sort();
+      if (!batches.length) return null;
+      const seen = new Set();
+      const merged = [];
+      for (const k of batches) {
+        const items = data[k];
+        if (!Array.isArray(items)) return null; // 结构不符 → 回退
+        for (const it of items) {
+          if (!it || typeof it !== "object" || !("title" in it)) return null;
+          const title = (it.title || "").trim();
+          if (!title || seen.has(title)) continue;
+          seen.add(title);
+          merged.push(it);
+        }
+      }
+      return merged.length ? merged : null;
+    },
+    /** 价格数值化用于排序(去 ¥、转 float)。 */
+    priceNum(p) {
+      const m = String(p?.price || "").match(/-?\d+(?:\.\d+)?/);
+      return m ? parseFloat(m[0]) : 0;
+    },
+
+    /**
+     * CSV 单元格转义:含逗号/引号/换行则用双引号包裹,内部双引号翻倍。
+     */
+    csvCell(v) {
+      const s = v == null ? "" : String(v);
+      if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    },
+    /**
+     * 导出抽取数据为 CSV(浏览器端生成,无后端往返)。
+     * 商品列表(batch_*)→ 标题/价格/销量 三列;
+     * 其它结构 → 拍平成 key/value 两列;无数据则提示。
+     */
+    exportCSV() {
+      const data = this.selectedRun?.extracted_data;
+      if (!data) return;
+      const products = this.mergedProducts();
+      let csv = "\uFEFF"; // BOM,确保 Excel 正确识别 UTF-8
+      if (products) {
+        csv += ["商品标题", "价格", "销量"].map(this.csvCell).join(",") + "\r\n";
+        for (const p of products) {
+          csv += [p.title, p.price, p.sales].map(this.csvCell).join(",") + "\r\n";
+        }
+      } else {
+        csv += ["键", "值"].map(this.csvCell).join(",") + "\r\n";
+        for (const [k, v] of Object.entries(data)) {
+          csv += [k, typeof v === "object" ? JSON.stringify(v) : v]
+            .map(this.csvCell).join(",") + "\r\n";
+        }
+      }
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `run_${this.selectedRun.id}_extracted.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
     },
 
     // ---- 系统 ----

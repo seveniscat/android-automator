@@ -60,3 +60,4 @@ from . import wait as _wait  # noqa: E402,F401
 from . import assert_ as _assert  # noqa: E402,F401
 from . import extract as _extract  # noqa: E402,F401
 from . import app as _app  # noqa: E402,F401
+from . import script as _script  # noqa: E402,F401
