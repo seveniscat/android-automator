@@ -26,6 +26,7 @@ class TaskIn(BaseModel):
     flow_yaml: Optional[str] = None
     variables: dict = {}
     schedule: str = ""   # 预留:定时表达式,本期不解析
+    device_serial: str = ""   # 指定设备 serial;空则自动选择(单设备时)
 
 
 @router.get("")
@@ -73,6 +74,7 @@ async def create_task(body: TaskIn, repo: Repository = Depends(get_repo)):
         flow_name=flow_name,
         flow_yaml=flow_yaml,
         variables=body.variables,
+        device_serial=body.device_serial,
         schedule=body.schedule,
     )
     return {"id": task.id, "flow_name": flow_name, "status": task.status}
@@ -113,6 +115,7 @@ async def run_task(
         run_id=run.id,
         yaml=task.flow_yaml,
         variables=task.variables or {},
+        device_serial=task.device_serial or "",
     )
     return {"task_id": task_id, "run_id": run.id, "status": "running"}
 

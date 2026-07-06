@@ -43,8 +43,10 @@ class FlowRunner:
         perception: Optional[ScreenshotPerception] = None,
         humanize: bool = True,
         capture_per_step: bool = True,
+        device_serial: Optional[str] = None,
     ) -> None:
         self._device_arg = device
+        self._device_serial = device_serial
         self.perception = perception
         self.humanize = humanize
         self.capture_per_step = capture_per_step
@@ -52,7 +54,7 @@ class FlowRunner:
     def _resolve_device(self) -> Device:
         if self._device_arg is not None:
             return self._device_arg
-        return get_device_manager().get_device()
+        return get_device_manager().get_device(self._device_serial)
 
     def run(
         self,

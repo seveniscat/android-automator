@@ -25,15 +25,20 @@ variables:
   keyword: 玩具
 
 steps:
-  # 0. 启动拼多多
+  # 0. 彻底重启拼多多(清除可能残留的详情页/面板状态)
+  - stop_app:
+      package: "${pkg}"
+  - wait:
+      seconds: 1
   - start_app:
       package: "${pkg}"
   - wait:
-      seconds: 6
+      seconds: 7
 
-  # 0.1 关闭开屏广告/弹窗(若有,无则跳过)
+  # 0.1 关闭开屏广告(若有 "跳过" 才点;无则跳过。注意:只用"跳过",
+  #     不用"关闭"——后者可能是详情页关闭键,会误触导航)
   - click:
-      content_desc: "关闭"
+      text_contains: "跳过"
       timeout: 3
       _on_failure: continue
   - wait:
@@ -126,15 +131,15 @@ steps:
             device.wait_exists(text="款式", timeout=6)
             time.sleep(1)
             # 5.3 解析 SKU 列表(每个款式一行: <名> ¥<价>)
+            # 排除促销标签噪声:即将卖完 / 仅XX分钟 / 到手价 / 已选 等
+            noise_re = re.compile(r"(即将卖完|仅\d+分钟|到手价|已选|人选择|好评|限量低价|同款热搜|抢光|秒杀)")
             root = ET.fromstring(device.dump_hierarchy())
             for n in root.iter("node"):
                 t = n.attrib.get("text", "").strip()
                 m = price_re.search(t)
-                if m and len(t) > 4:
-                    entry["skus"].append({
-                        "name": t[:m.start()].strip(),
-                        "price": m.group(1),
-                    })
+                name = t[:m.start()].strip() if m else ""
+                if m and len(name) >= 3 and not noise_re.search(name):
+                    entry["skus"].append({"name": name, "price": m.group(1)})
             # 5.4 关面板 + 回搜索结果
             device.press("back")  # 关 SKU 面板
             time.sleep(0.5)

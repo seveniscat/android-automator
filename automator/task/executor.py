@@ -31,11 +31,11 @@ class Executor:
         self._lock = threading.Lock()
 
     # ---- 同步入口(在工作线程中调用)----
-    def _run_sync(self, task_id: int, run_id: int, yaml: str, variables: dict) -> None:
+    def _run_sync(self, task_id: int, run_id: int, yaml: str, variables: dict, device_serial: str = "") -> None:
         repo = get_repository()
         try:
             flow = parse_flow(yaml)
-            runner = FlowRunner()
+            runner = FlowRunner(device_serial=device_serial or None)
             result = runner.run(flow, variables=variables)
 
             repo.finish_run(
@@ -80,6 +80,7 @@ class Executor:
         run_id: int,
         yaml: str,
         variables: Optional[dict] = None,
+        device_serial: str = "",
     ) -> None:
         """异步提交任务到线程池。"""
         loop = asyncio.get_running_loop()
@@ -89,7 +90,7 @@ class Executor:
                 logger.error(f"task {task_id} 线程异常: {fut.exception()}")
 
         with self._lock:
-            fut = self._pool.submit(self._run_sync, task_id, run_id, yaml, variables or {})
+            fut = self._pool.submit(self._run_sync, task_id, run_id, yaml, variables or {}, device_serial)
             fut.add_done_callback(on_done)
             self._futures[task_id] = fut
         logger.info(f"已派发任务 {task_id} (run={run_id}) 到线程池")
@@ -100,10 +101,11 @@ class Executor:
         run_id: int,
         yaml: str,
         variables: Optional[dict] = None,
+        device_serial: str = "",
     ) -> None:
         """同步派发(阻塞直到提交完成,任务在工作线程异步执行)。"""
         with self._lock:
-            fut = self._pool.submit(self._run_sync, task_id, run_id, yaml, variables or {})
+            fut = self._pool.submit(self._run_sync, task_id, run_id, yaml, variables or {}, device_serial)
             self._futures[task_id] = fut
         logger.info(f"已派发任务 {task_id} (run={run_id})")
 
