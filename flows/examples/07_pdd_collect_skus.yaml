@@ -94,8 +94,9 @@ steps:
                         "y": (int(m[0][1]) + int(m[1][1])) // 2,
                     })
 
-  # 5. ★ 核心:逐个点开商品详情,采集 SKU 款式价格
+  # 5. ★ 核心:逐个点开商品详情,采集所有 SKU 款式价格(含滑动加载)
   #    购买按钮有多种变体(免拼购买 / 马上拼),逐一尝试命中。
+  #    款式过多时面板可滚动,滑动并反复 dump 直到无新增 SKU。
   - script:
       as: detail_skus
       code: |
@@ -106,6 +107,8 @@ steps:
             "//*[@content-desc[contains(.,'马上拼')]]",
         ]
         price_re = re.compile(r"¥\s*([\d.]+)\s*$")
+        # 促销标签噪声:即将卖完 / 仅XX分钟 / 到手价 / 限量低价 等
+        noise_re = re.compile(r"(即将卖完|仅\d+分钟|到手价|已选|人选择|好评|限量低价|同款热搜|抢光|秒杀|快卖完|快抢光)")
 
         def open_sku_panel():
             """点购买按钮打开 SKU 面板,成功返回 True。"""
@@ -113,6 +116,35 @@ steps:
                 if device.click_element(xpath=xp, timeout=2):
                     return True
             return False
+
+        def parse_skus():
+            """从当前面板 dump 解析可见 SKU(返回 [(name, price)])。"""
+            root = ET.fromstring(device.dump_hierarchy())
+            out = []
+            for n in root.iter("node"):
+                t = n.attrib.get("text", "").strip()
+                m = price_re.search(t)
+                name = t[:m.start()].strip() if m else ""
+                if m and len(name) >= 3 and not noise_re.search(name):
+                    out.append((name, m.group(1)))
+            return out
+
+        def collect_all_skus(max_rounds=8):
+            """滑动面板采集全部 SKU,去重,直到无新增或达到上限。"""
+            seen = {}  # name -> price(去重)
+            for _ in range(max_rounds):
+                skus = parse_skus()
+                added = 0
+                for name, price in skus:
+                    if name not in seen:
+                        seen[name] = price
+                        added += 1
+                if added == 0:
+                    break  # 收敛
+                # 在 SKU 列表区上滑加载更多
+                device.swipe(540, 1500, 540, 1200, 0.4)
+                time.sleep(1.2)
+            return [{"name": n, "price": p} for n, p in seen.items()]
 
         result = []
         for card in (ctx.extracted.get("products") or []):
@@ -130,16 +162,8 @@ steps:
             # 等面板出现(款式标签)
             device.wait_exists(text="款式", timeout=6)
             time.sleep(1)
-            # 5.3 解析 SKU 列表(每个款式一行: <名> ¥<价>)
-            # 排除促销标签噪声:即将卖完 / 仅XX分钟 / 到手价 / 已选 等
-            noise_re = re.compile(r"(即将卖完|仅\d+分钟|到手价|已选|人选择|好评|限量低价|同款热搜|抢光|秒杀)")
-            root = ET.fromstring(device.dump_hierarchy())
-            for n in root.iter("node"):
-                t = n.attrib.get("text", "").strip()
-                m = price_re.search(t)
-                name = t[:m.start()].strip() if m else ""
-                if m and len(name) >= 3 and not noise_re.search(name):
-                    entry["skus"].append({"name": name, "price": m.group(1)})
+            # 5.3 滑动采集全部 SKU
+            entry["skus"] = collect_all_skus()
             # 5.4 关面板 + 回搜索结果
             device.press("back")  # 关 SKU 面板
             time.sleep(0.5)
