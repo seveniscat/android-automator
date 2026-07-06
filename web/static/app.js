@@ -571,6 +571,20 @@ function automatorApp() {
     },
 
     /**
+     * 详情采集数据(detail_skus):每个商品的 SKU 款式价格列表。
+     * 仅当 extracted_data 含 detail_skus 数组时启用,否则返回 null。
+     * 结构:[{title, skus:[{name,price}], error?}, ...]
+     */
+    mergedDetails() {
+      const data = this.selectedRun?.extracted_data;
+      if (!data || !Array.isArray(data.detail_skus)) return null;
+      const list = data.detail_skus.filter(
+        (d) => d && typeof d === "object" && (d.skus?.length || d.error)
+      );
+      return list.length ? list : null;
+    },
+
+    /**
      * CSV 单元格转义:含逗号/引号/换行则用双引号包裹,内部双引号翻倍。
      */
     csvCell(v) {
@@ -581,23 +595,41 @@ function automatorApp() {
     /**
      * 导出抽取数据为 CSV(浏览器端生成,无后端往返)。
      * 商品列表(batch_*)→ 标题/价格/销量 三列;
+     * 详情 SKU(detail_skus)→ 追加 商品/款式名/价格 三列;
      * 其它结构 → 拍平成 key/value 两列;无数据则提示。
      */
     exportCSV() {
       const data = this.selectedRun?.extracted_data;
       if (!data) return;
       const products = this.mergedProducts();
+      const details = this.mergedDetails();
       let csv = "\uFEFF"; // BOM,确保 Excel 正确识别 UTF-8
       if (products) {
         csv += ["商品标题", "价格", "销量"].map(this.csvCell).join(",") + "\r\n";
         for (const p of products) {
           csv += [p.title, p.price, p.sales].map(this.csvCell).join(",") + "\r\n";
         }
-      } else {
+      } else if (!details) {
+        // 既无商品列表也无详情 → 拍平 key/value
         csv += ["键", "值"].map(this.csvCell).join(",") + "\r\n";
         for (const [k, v] of Object.entries(data)) {
           csv += [k, typeof v === "object" ? JSON.stringify(v) : v]
             .map(this.csvCell).join(",") + "\r\n";
+        }
+      }
+      // 详情 SKU 区(若有,用空行分隔)
+      if (details) {
+        csv += "\r\n";
+        csv += ["商品", "款式", "价格"].map(this.csvCell).join(",") + "\r\n";
+        for (const d of details) {
+          if (d.skus && d.skus.length) {
+            for (const s of d.skus) {
+              csv += [d.title, s.name, s.price].map(this.csvCell).join(",") + "\r\n";
+            }
+          } else {
+            csv += [d.title, d.error || "(无款式数据)", ""]
+              .map(this.csvCell).join(",") + "\r\n";
+          }
         }
       }
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });

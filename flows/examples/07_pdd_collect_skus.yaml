@@ -1,0 +1,149 @@
+# 拼多多:搜索"玩具" → 点开每个商品详情 → 采集所有款式(SKU)价格
+#
+# 在 06(列表采集)基础上深入一步:逐个点开商品详情页,点击右下角"免拼购买"
+# 按钮弹出 SKU 面板,采集每个款式(颜色/型号等)的名称与价格。
+#
+# 真机实测结论:
+#   - 详情页购买按钮:content-desc 形如"低至X折¥Y免拼购买",xpath contains
+#     "免拼购买" 可靠命中。
+#   - SKU 面板:每个款式是单个 TextView,格式 "<款式名> ¥<价格>",
+#     用正则 ¥\s*([\d.]+) 提价格、前缀为款式名。
+#   - 商品卡片:tv_title 节点的可点击祖先,中心坐标点击进详情。
+#   - 返回:详情页 press back 回搜索结果,tv_title 仍在。
+#
+# 因 DSL 不支持循环,用单个 script 步骤在 Python 里驱动整个
+# "点卡片 → 进详情 → 开面板 → 解析 → 返回" 循环(device 暴露了全部原语)。
+name: 拼多多-搜索玩具-采集商品款式价格
+description: |
+  打开拼多多 → 搜索"玩具" → 点开每个商品详情 → 点"免拼购买" → 采集所有
+  款式(SKU)的名称与价格。
+  采集首屏商品(约 4 个),每个商品的款式列表。
+tags: [拼多多, 采集, SKU, 详情]
+
+variables:
+  pkg: com.xunmeng.pinduoduo
+  keyword: 玩具
+
+steps:
+  # 0. 启动拼多多
+  - start_app:
+      package: "${pkg}"
+  - wait:
+      seconds: 6
+
+  # 0.1 关闭开屏广告/弹窗(若有,无则跳过)
+  - click:
+      content_desc: "关闭"
+      timeout: 3
+      _on_failure: continue
+  - wait:
+      seconds: 1
+
+  # 1. 进搜索页并输入关键字
+  - click:
+      content_desc: "搜索"
+      timeout: 10
+  - wait:
+      seconds: 2
+  - input:
+      text: "${keyword}"
+      clear: true
+  - wait:
+      seconds: 1
+
+  # 2. 触发搜索
+  - click:
+      text: "搜索"
+      timeout: 5
+  - wait:
+      seconds: 4
+
+  # 3. 断言已进入搜索结果页
+  - assert:
+      exists:
+        text_contains: "¥"
+        timeout: 8
+
+  # 4. 采集搜索结果首屏的商品卡片(标题 + 可点击坐标)
+  - script:
+      as: products
+      code: |
+        root = ET.fromstring(device.dump_hierarchy())
+        pm = {c: p for p in root.iter("node") for c in p}
+        result = []
+        for n in root.iter("node"):
+            if n.attrib.get("resource-id", "").endswith("tv_title"):
+                cur, card = n, n
+                for _ in range(10):
+                    cur = pm.get(cur)
+                    if cur is None:
+                        break
+                    if cur.attrib.get("clickable") == "true":
+                        card = cur
+                b = card.attrib.get("bounds", "")
+                m = re.findall(r"\[(\d+),(\d+)\]", b)
+                if len(m) >= 2:
+                    result.append({
+                        "title": n.attrib.get("content-desc", "").strip(),
+                        "x": (int(m[0][0]) + int(m[1][0])) // 2,
+                        "y": (int(m[0][1]) + int(m[1][1])) // 2,
+                    })
+
+  # 5. ★ 核心:逐个点开商品详情,采集 SKU 款式价格
+  #    购买按钮有多种变体(免拼购买 / 马上拼),逐一尝试命中。
+  - script:
+      as: detail_skus
+      code: |
+        # 购买按钮候选(按优先级):免拼购买 > 马上拼
+        buy_xpaths = [
+            "//*[@content-desc[contains(.,'免拼购买')]]",
+            "//*[@text='马上拼']",
+            "//*[@content-desc[contains(.,'马上拼')]]",
+        ]
+        price_re = re.compile(r"¥\s*([\d.]+)\s*$")
+
+        def open_sku_panel():
+            """点购买按钮打开 SKU 面板,成功返回 True。"""
+            for xp in buy_xpaths:
+                if device.click_element(xpath=xp, timeout=2):
+                    return True
+            return False
+
+        result = []
+        for card in (ctx.extracted.get("products") or []):
+            entry = {"title": card.get("title", ""), "skus": []}
+            # 5.1 点商品卡片进详情页
+            device.click(card["x"], card["y"])
+            time.sleep(2)
+            # 5.2 点购买按钮打开 SKU 面板
+            if not open_sku_panel():
+                entry["error"] = "购买按钮未命中(免拼购买/马上拼 均未出现)"
+                device.press("back")
+                time.sleep(1)
+                result.append(entry)
+                continue
+            # 等面板出现(款式标签)
+            device.wait_exists(text="款式", timeout=6)
+            time.sleep(1)
+            # 5.3 解析 SKU 列表(每个款式一行: <名> ¥<价>)
+            root = ET.fromstring(device.dump_hierarchy())
+            for n in root.iter("node"):
+                t = n.attrib.get("text", "").strip()
+                m = price_re.search(t)
+                if m and len(t) > 4:
+                    entry["skus"].append({
+                        "name": t[:m.start()].strip(),
+                        "price": m.group(1),
+                    })
+            # 5.4 关面板 + 回搜索结果
+            device.press("back")  # 关 SKU 面板
+            time.sleep(0.5)
+            device.press("back")  # 回搜索结果
+            time.sleep(1)
+            result.append(entry)
+
+  # 6. 退出搜索
+  - press:
+      key: back
+  - wait:
+      seconds: 1

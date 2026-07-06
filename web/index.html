@@ -6,7 +6,7 @@
   <title>Automator · Android 自动化平台</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <link rel="stylesheet" href="/static/styles.css?v=2" />
+  <link rel="stylesheet" href="/static/styles.css?v=3" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen" x-data="automatorApp()">
   <!-- 顶栏 -->
@@ -434,6 +434,52 @@
               </div>
             </template>
 
+            <!-- 详情 SKU 价格(点开商品详情采集的款式价格) -->
+            <template x-if="mergedDetails()">
+              <div class="mt-4">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-500">
+                    详情款式价格 <span class="font-semibold text-slate-700"
+                      x-text="mergedDetails().length"></span> 个商品
+                  </span>
+                  <span class="text-xs text-slate-400">点商品展开款式</span>
+                </div>
+                <div class="space-y-2">
+                  <template x-for="(d, i) in mergedDetails()" :key="i">
+                    <details class="border rounded">
+                      <summary class="text-xs cursor-pointer hover:bg-slate-50 px-2 py-1.5 flex items-center gap-2 select-none">
+                        <span class="font-medium text-slate-700 flex-1 truncate" x-text="d.title"></span>
+                        <span class="text-slate-400 whitespace-nowrap"
+                          x-text="(d.skus && d.skus.length) ? d.skus.length + ' 款' : '无款式'"></span>
+                        <span x-show="d.error" class="text-rose-500 text-xs" x-text="d.error"></span>
+                      </summary>
+                      <template x-if="d.skus && d.skus.length">
+                        <table class="w-full text-xs">
+                          <thead class="bg-slate-100">
+                            <tr class="text-slate-600">
+                              <th class="text-left px-2 py-1 font-medium">款式</th>
+                              <th class="text-right px-2 py-1 font-medium whitespace-nowrap">价格</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <template x-for="(s, j) in d.skus.slice().sort((a,b)=>priceNum(a)-priceNum(b))" :key="j">
+                              <tr class="border-t">
+                                <td class="px-2 py-1 text-slate-700" x-text="s.name"></td>
+                                <td class="px-2 py-1 text-right font-mono text-rose-600 whitespace-nowrap">
+                                  ¥<span x-text="s.price"></span></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </template>
+                      <div x-show="!d.skus || !d.skus.length"
+                        class="text-xs text-rose-500 px-2 py-2" x-text="d.error || '无款式数据'"></div>
+                    </details>
+                  </template>
+                </div>
+              </div>
+            </template>
+
             <!-- 原始 JSON:始终保留展示。有商品表格时默认折叠,无表格时直接展开。 -->
             <details class="mt-3" :open="!mergedProducts()">
               <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-700 select-none">
@@ -465,6 +511,6 @@
     Automator v0.1.0 · 基于 uiautomator2
   </footer>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>
